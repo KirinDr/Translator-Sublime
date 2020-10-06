@@ -1,61 +1,43 @@
 import sublime
 import sublime_plugin
-import json
 import re
-import urllib.request
-import urllib.parse
+import http.client
+import hashlib
+import urllib
+import random
+import json
+from .config import appid, secretKey
 
 
-def cancel_RegEx(string):
-    # 取消正则关键字
-    key = ['\\', '.', '*', '^', '&', '[', ']', '{', '}', '?']
-    ret = ''
-    for ch in string:
-        if ch in key:
-            ret += '\\' + ch
-        else:
-            ret += ch
-    return ret
+def baidu_translate(word):
+    myurl = 'http://api.fanyi.baidu.com/api/trans/vip/translate'
 
-
-
-def youdao_translate(word):
-    url = 'http://fanyi.youdao.com/translate?smartresult=dict&smartresult=rule&smartresult=ugc&sessionFrom=null'
-    key = {
-        'type': "AUTO",
-        'i': word,
-        "doctype": "json",
-        "version": "2.1",
-        "keyfrom": "fanyi.web",
-        "ue": "UTF-8",
-        "action": "FY_BY_CLICKBUTTON",
-        "typoResult": "true"
+    from_lang = 'auto'
+    to_lang = 'en'
+    salt = random.randint(32768, 65536)
+    sign = appid + word + str(salt) + secretKey
+    sign = hashlib.md5(sign.encode(encoding="utf-8")).hexdigest()
+    
+    data = {
+        'from': from_lang,
+        'to': to_lang,
+        'appid': appid,
+        'salt': str(salt),
+        'sign': sign,
+        'q': word
     }
-    data = urllib.parse.urlencode(key)
-    request = urllib.request.Request(url, data.encode())
-    openreq = urllib.request.urlopen(request)
-    dic = json.loads(openreq.read().decode())
-    tgt = dic['translateResult'][0][0]['tgt']
-    return tgt
-
-
-class CppTranslatorCommand(sublime_plugin.TextCommand):
-
-    def find_note(self, s):
-        pattern = re.compile('/\*(.*?)\*/')
-        ret = re.findall(pattern, s)
-        pattern = re.compile('//(.*?)\n')
-        ret += (re.findall(pattern, s))
-        return ret
-
-    def run(self, edit):
-        file_name = self.view.file_name()
-        with open(file_name, 'r') as f:
-          content = f.read()
-        notes = self.find_note(content)
-        for note in notes:
-            start = self.view.find(cancel_RegEx(note), 0)
-            self.view.replace(edit, start, youdao_translate(note))
+    data = urllib.parse.urlencode(data)
+    url = '%s?%s' % (myurl, data)
+    res = urllib.request.urlopen(url)
+    result = str(res.read(), encoding='utf-8')
+    result = json.loads(result)
+    if result.get('error_code') is None:
+        return result['trans_result'][0]['dst']
+    elif result.get('error_code') == '52003':
+        sublime.error_message('错误的appid')
+    else:
+        return None
+        
 
 
 class LineTranslatorCommand(sublime_plugin.TextCommand):
@@ -64,20 +46,30 @@ class LineTranslatorCommand(sublime_plugin.TextCommand):
         if type(ch) != str: return False
         return '\u4e00' <= ch <= '\u9fff'
 
-    def translate(self, edit, string):
-        result = youdao_translate(string)
-        start = self.view.find(cancel_RegEx(string), 0)
-        self.view.replace(edit, start, youdao_translate(string))
+    def translate_and_replace(self, edit, region, prefix, string):
+        result = baidu_translate(string)
+        dst = baidu_translate(string)
+        if dst:
+            self.view.replace(edit, region, prefix + dst)
 
+    def check_key(self):
+        if appid == '' or secretKey == '':
+            sublime.error_message('请前往api.fanyi.baidu.com申请appid和secretKey,并添加在config.py')
+            return False
+        return True
 
     def run(self, edit):
+        if not self.check_key():
+            return
+
         line_region = self.view.line(self.view.sel()[0])
-        line_string = self.view.substr(line_region).strip()
+        line_string = self.view.substr(line_region)
         for ch in line_string:
             if self.is_chinese(ch):
                 index = line_string.find(ch)
                 chinese_string = line_string[index:]
-                self.translate(edit, chinese_string)
+                prefix = '' if index == 0 else line_string[0: index]
+                self.translate_and_replace(edit, line_region, prefix, chinese_string)
                 return
 
 
