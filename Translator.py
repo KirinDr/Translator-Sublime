@@ -32,7 +32,11 @@ def baidu_translate(word):
     result = str(res.read(), encoding='utf-8')
     result = json.loads(result)
     if result.get('error_code') is None:
-        return result['trans_result'][0]['dst']
+        result_s = []
+        for s in result['trans_result']:
+            result_s.append(s['dst'])
+        result_s = '\n'.join(result_s)
+        return result_s
     elif result.get('error_code') == '52003':
         sublime.error_message('错误的appid')
     else:
@@ -41,7 +45,6 @@ def baidu_translate(word):
 
 
 class LineTranslatorCommand(sublime_plugin.TextCommand):
-
     def is_chinese(self, ch):
         if type(ch) != str: return False
         return '\u4e00' <= ch <= '\u9fff'
@@ -62,14 +65,24 @@ class LineTranslatorCommand(sublime_plugin.TextCommand):
         if not self.check_key():
             return
 
-        line_region = self.view.line(self.view.sel()[0])
-        line_string = self.view.substr(line_region)
-        for ch in line_string:
-            if self.is_chinese(ch):
-                index = line_string.find(ch)
-                chinese_string = line_string[index:]
-                prefix = '' if index == 0 else line_string[0: index]
-                self.translate_and_replace(edit, line_region, prefix, chinese_string)
-                return
+        only_line = False
+
+        choose_line = self.view.sel()[0]
+        if choose_line.a == choose_line.b:
+            only_line = True
+
+        if only_line:
+            line_region = self.view.line(choose_line)
+            line_string = self.view.substr(line_region)
+            for ch in line_string:
+                if self.is_chinese(ch):
+                    index = line_string.find(ch)
+                    chinese_string = line_string[index:]
+                    prefix = '' if index == 0 else line_string[0: index]
+                    self.translate_and_replace(edit, line_region, prefix, chinese_string)
+                    return
+        else:
+            line_string = self.view.substr(choose_line)
+            self.translate_and_replace(edit, choose_line, '', line_string)
 
 
