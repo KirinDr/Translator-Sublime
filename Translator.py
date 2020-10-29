@@ -41,25 +41,24 @@ def baidu_translate(word):
         sublime.error_message('错误的appid')
     else:
         return None
-        
 
 
 class LineTranslatorCommand(sublime_plugin.TextCommand):
+    print('translator正在将中文翻译为英文...')
     def is_chinese(self, ch):
         if type(ch) != str: return False
         return '\u4e00' <= ch <= '\u9fff'
-
-    def translate_and_replace(self, edit, region, prefix, string):
-        result = baidu_translate(string)
-        dst = baidu_translate(string)
-        if dst:
-            self.view.replace(edit, region, prefix + dst)
 
     def check_key(self):
         if appid == '' or secretKey == '':
             sublime.error_message('请前往api.fanyi.baidu.com申请appid和secretKey,并添加在config.py')
             return False
         return True
+
+    def translate(self, region, prefix, string):
+       dst = baidu_translate(string)
+       if dst:
+          self.view.run_command('replace', {'region': (region.a, region.b), 'string': prefix + dst})
 
     def run(self, edit):
         if not self.check_key():
@@ -72,17 +71,23 @@ class LineTranslatorCommand(sublime_plugin.TextCommand):
             only_line = True
 
         if only_line:
-            line_region = self.view.line(choose_line)
-            line_string = self.view.substr(line_region)
+            region = self.view.line(choose_line)
+            line_string = self.view.substr(region)
             for ch in line_string:
                 if self.is_chinese(ch):
                     index = line_string.find(ch)
                     chinese_string = line_string[index:]
                     prefix = '' if index == 0 else line_string[0: index]
-                    self.translate_and_replace(edit, line_region, prefix, chinese_string)
-                    return
+                    break
         else:
-            line_string = self.view.substr(choose_line)
-            self.translate_and_replace(edit, choose_line, '', line_string)
+            region = choose_line
+            chinese_string = self.view.substr(region)
+            prefix = ''
+
+        sublime.set_timeout_async(lambda :self.translate(region, prefix, chinese_string), 0)
 
 
+class ReplaceCommand(sublime_plugin.TextCommand):
+    def run(self, edit, region, string):
+        region = sublime.Region(region[0], region[1])
+        self.view.replace(edit, region, string)
